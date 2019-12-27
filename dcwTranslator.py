@@ -81,7 +81,9 @@ class SimpleTranslator:
                 description = draw.description.upper()
                 if "IF " in description:
                     self.add_label(LabelType.CONDITION_LABEL, draw)
-                elif ("?" in description or "DESCRIBE" in description or "INDICATE" in description) and "OTHER" not in description:
+                elif "?" in description:
+                    self.add_label(LabelType.QUESTION_LABEL, draw)
+                elif ("DESCRIBE" in description or "INDICATE" in description) and "OTHER" not in description:
                     self.add_label(LabelType.QUESTION_LABEL, draw)
                 else:
                     self.add_label(LabelType.DTA_LABEL, draw)

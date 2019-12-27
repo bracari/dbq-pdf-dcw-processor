@@ -2,6 +2,7 @@ import xml.etree.ElementTree as ET
 from operator import attrgetter, methodcaller
 
 from dcwTranslator import SimpleTranslator, simpleCheckBoxBinder, simpleTextBinder
+from dcwWriter import AuditDCWWriter, PowerFormDCWWriter, Logger
 from orderedElement import OrderedElement, Section, Question, LabelType, FieldType, DTAQuestion
 
 import xlsxwriter
@@ -52,12 +53,15 @@ for page in pages:
 
 
 #Pre-Order sections and set bounds
+section_count = 1
 for page in sections:
     prev_section = None
     for section in sorted(sections[page], key=attrgetter('header.y')):
+        section.ordinal(section_count)
         if prev_section is not None:
             prev_section.lower = section.upper
         prev_section = section
+        section_count += 1
 
 #Parse questions
 questions = {}
@@ -66,7 +70,11 @@ for page in sections:
     count = 0
     for section in sorted(sections[page], key=attrgetter('header.y')):
         line_count = 0
+        prev_line = None
         for line in sorted(page_lines[page], key=attrgetter('y')):
+            if prev_line is not None and prev_line.y == line.y:
+                continue
+            prev_line = line
             if section.upper > line.y:
                 continue
             if section.lower < line.y:
@@ -106,7 +114,7 @@ for page in sections:
 
         count += 1
 
-
+logger = Logger('logger.xlsx')
 for page in sections:
     for section in sorted(sections[page], key=attrgetter('header.y')):
         for question in sorted(section.questions, key=attrgetter('lower')):
@@ -116,43 +124,47 @@ for page in sections:
             dta_question = None
             dta_count = 0
             for question_label in sorted(question_labels, key=attrgetter('y')):
+                x_str = "{}mm".format(question_label.x)
                 y_str = "{}mm".format(question_label.y)
                 h_str = "{}mm".format(question_label.h)
                 if dta_count == 0:
-                    dta_question = DTAQuestion(y_str, '9999mm', question_label)
+                    dta_question = DTAQuestion(y_str, x_str, '9999mm', '9999mm', question_label)
                     section.dta_questions.append(dta_question)
                 else:
                     dta_question.set_lower_bound(y_str, h_str)
+                    dta_question.set_right_bound(x_str)
 
                     fields = translator.get_ordered_fields(FieldType.ALPHA)
                     binder = simpleCheckBoxBinder(fields, translator.get_ordered_labels(LabelType.DTA_LABEL))
-                    dta_question.mapper(binder)
+                    dta_question.mapper(binder, logger)
 
                     fields = translator.get_ordered_fields(FieldType.FREE_TEXT) + translator.get_ordered_fields(
                         FieldType.DATE)
                     binder = simpleTextBinder(fields, translator.get_ordered_labels(LabelType.DTA_LABEL))
-                    dta_question.mapper(binder)
+                    dta_question.mapper(binder, logger)
 
                     fields = translator.get_ordered_fields(FieldType.RICH_TEXT)
-                    dta_question.mapper(binder)
+                    dta_question.mapper(binder, logger)
 
-                    dta_question = DTAQuestion(y_str, '9999mm', question_label)
+                    dta_question = DTAQuestion(y_str, x_str, '9999mm', '9999mm', question_label)
                     section.dta_questions.append(dta_question)
 
                 dta_count += 1
             if dta_question is not None and dta_question.lower == float(9999):
+                x_str = "{}mm".format('9999')
                 y_str = "{}mm".format(question.lower)
                 h_str = "{}mm".format(question.lower)
                 dta_question.set_lower_bound(y_str, h_str)
+                dta_question.set_right_bound(x_str)
 
                 fields = translator.get_ordered_fields(FieldType.ALPHA)
                 binder = simpleCheckBoxBinder(fields, translator.get_ordered_labels(LabelType.DTA_LABEL))
-                dta_question.mapper(binder)
+                dta_question.mapper(binder, logger)
 
                 fields = translator.get_ordered_fields(FieldType.FREE_TEXT) + translator.get_ordered_fields(
                     FieldType.DATE)
                 binder = simpleTextBinder(fields, translator.get_ordered_labels(LabelType.DTA_LABEL))
-                dta_question.mapper(binder)
+                dta_question.mapper(binder, logger)
 
                 fields = translator.get_ordered_fields(FieldType.RICH_TEXT)
                 if len(fields) > 0:
@@ -174,13 +186,24 @@ for page in sections:
             # fields = translator.get_ordered_fields(FieldType.RICH_TEXT)
             # dta_question.mapper(binder)
 
+writer = AuditDCWWriter('test.xlsx')
+power_writer = PowerFormDCWWriter('test_powerform.xlsx')
+
 count = 1
 for page in sections:
     print(page)
     for section in sorted(sections[page], key=attrgetter('header.y')):
         print("\t{} at y={}".format(section.header.description, section.header.y))
+        power_writer.write_section_row(section)
+        power_writer.write_banner_row(section)
         for question in sorted(section.dta_questions, key=attrgetter('lower')):
             print("\t\tQuestion:{}".format(question.label.description))
-
+            power_writer.write_label_row(question)
+            power_writer.write_dta_row(question)
+            writer.write_row(question)
             for dta in question.dta_elements:
                 print("\t\t\t{}{}".format(dta, question.dta_elements[dta]))
+
+power_writer.commit()
+writer.commit()
+logger.commit()

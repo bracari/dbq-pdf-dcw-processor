@@ -2,11 +2,13 @@ from enum import Enum, IntFlag
 from operator import methodcaller
 import math
 
+
 class LabelType(Enum):
     FIELD = 1
     QUESTION_LABEL = 2
     CONDITION_LABEL = 3
     DTA_LABEL = 4
+
 
 class FieldType(IntFlag):
     ALPHA = 1
@@ -26,27 +28,27 @@ class OrderedElement:
         return math.ceil(self.y / 7) * 1000 + self.x
 
     def __init__(self, element):
-        #Set name
+        # Set name
         name = element.attrib['name'] if 'name' in element.attrib else None
         self.name = name
 
-        #Set x-value
+        # Set x-value
         x_str = element.attrib['x'] if 'x' in element.attrib else '9999mm'
         self.x = float(x_str[:-2])
 
-        #Set y-value
+        # Set y-value
         y_str = element.attrib['y'] if 'y' in element.attrib else '0mm'
         self.y = float(y_str[:-2])
-        
-        #Set h-value
+
+        # Set h-value
         h_str = element.attrib['h'] if 'h' in element.attrib else '0mm'
         self.h = float(h_str[:-2])
-        
-        #Set w-value
+
+        # Set w-value
         w_str = element.attrib['w'] if 'w' in element.attrib else '0mm'
         self.w = float(w_str[:-2])
 
-        #Process and set description (Only applies to draw-type elements)
+        # Process and set description (Only applies to draw-type elements)
         description = None
         text_element = element.find(".//t:value/t:text", OrderedElement.ns)
         formatted_text_element = element.find(".//t:value/t:exData", OrderedElement.ns)
@@ -93,6 +95,11 @@ class OrderedElement:
 
 
 class Section:
+
+    def ordinal(self, n):
+        ordinal_str = "%d%s" % (n, "tsnrhtdd"[(n / 10 % 10 != 1) * (n % 10 < 4) * n % 10::4])
+        self.ordinal_str = ordinal_str + " Section"
+
     def order(self):
         return self.header.y
 
@@ -103,6 +110,7 @@ class Section:
         self.header = header
         self.questions = []
         self.dta_questions = []
+        self.ordinal_str = None
 
 
 class Question:
@@ -113,7 +121,7 @@ class Question:
         # org_name = ordered_element.name
         # org_description = ordered_element.description
         # org_element = ordered_element.element
-        self.elements.append(OrderedElement(ordered_element.element  ))
+        self.elements.append(OrderedElement(ordered_element.element))
 
     def get_elements(self):
         return sorted(self.elements, key=methodcaller('order'))
@@ -139,20 +147,40 @@ class Question:
 
 class DTAQuestion(Question):
 
-    def mapper(self, binder):
+    def mapper(self, binder, logger):
         for bound_field in binder:
+            upper_collision = abs(self.upper - bound_field.y)
+            lower_collision = abs(self.lower - bound_field.y)
+            logger.write_row(self, bound_field, upper_collision, lower_collision)
+            if upper_collision <= 3 and self.left > bound_field.x:
+                continue
             if self.upper > bound_field.y:
                 continue
-            if self.lower < bound_field.y:
+            # if lower_collision <= 3 and self.right < bound_field.x:
+            #     break
+            if self.lower < bound_field.y and lower_collision > 3:
                 break
             field_label = binder[bound_field]
             if field_label.description not in self.dta_elements:
                 self.dta_elements.update({field_label.description: []})
             self.dta_elements[field_label.description].append(bound_field.field_type)
 
-    def __init__(self, upper_bound, lower_bound, label):
+    def set_right_bound(self, right_bound):
+        self.right = float(right_bound[:-2])
+
+    def __init__(self, upper_bound, left_bound, lower_bound, right_bound, label):
         super().__init__(upper_bound, lower_bound)
+
+        if isinstance(left_bound, float):
+            self.left = left_bound
+        else:
+            self.left = float(left_bound[:-2])
+
+        if isinstance(right_bound, float):
+            self.right = right_bound
+        else:
+            self.right = float(right_bound[:-2])
+
         self.dta_elements = {}
         self.label = label
         self.mnemonic = label.description
-
